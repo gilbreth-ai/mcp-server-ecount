@@ -15,6 +15,18 @@ export interface EcountCredentials {
 }
 
 /**
+ * Retry 설정 (Exponential Backoff)
+ */
+export interface RetryOptions {
+  /** 최대 재시도 횟수 (기본: 3) */
+  maxAttempts?: number;
+  /** 초기 대기 시간 ms (기본: 2000) */
+  initialDelayMs?: number;
+  /** 최대 대기 시간 ms (기본: 8000) */
+  maxDelayMs?: number;
+}
+
+/**
  * 서버 환경 설정
  */
 export interface ServerConfig {
@@ -28,6 +40,8 @@ export interface ServerConfig {
   rateLimitFilePath?: string;
   /** 캐시 TTL (밀리초, 기본: 10분) */
   cacheTtlMs?: number;
+  /** Exponential Backoff 재시도 설정 */
+  retry?: RetryOptions;
 }
 
 /**
