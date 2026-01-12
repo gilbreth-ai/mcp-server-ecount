@@ -43,7 +43,9 @@ import {
   EcountApiCallError,
   EcountRateLimitError,
   formatErrorMessage,
+  isTransientError,
 } from '../utils/errors.js';
+import { withRetry, type RetryConfig, DEFAULT_RETRY_CONFIG } from '../utils/retry.js';
 import { getLogger, type Logger } from '../utils/logger.js';
 import { SessionManager } from './session-manager.js';
 import { getCache, type ApiCache } from './cache.js';
@@ -82,6 +84,7 @@ export class EcountClient {
   private errorCounter: ErrorCounter;
   private logger: Logger;
   private initialized: boolean = false;
+  private retryConfig: RetryConfig;
 
   constructor(config: EcountMcpConfig) {
     this.logger = getLogger();
@@ -100,6 +103,12 @@ export class EcountClient {
       stateFilePath: config.server?.rateLimitFilePath,
     });
     this.errorCounter = getErrorCounter();
+
+    // Exponential Backoff 재시도 설정
+    this.retryConfig = {
+      ...DEFAULT_RETRY_CONFIG,
+      ...config.server?.retry,
+    };
   }
 
   /**
@@ -164,28 +173,46 @@ export class EcountClient {
 
         this.logger.debug('API request', { endpoint, rateLimitType });
 
-        let response: Response;
-        try {
-          response = await fetchWithTimeout(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-        } catch (fetchError) {
-          // 타임아웃 에러
-          if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-            throw new EcountError(
-              `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): ${endpoint}`,
-              'TIMEOUT',
-              { endpoint }
-            );
+        // Exponential Backoff를 적용한 fetch 호출
+        const response = await withRetry(
+          async () => {
+            try {
+              return await fetchWithTimeout(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              });
+            } catch (fetchError) {
+              // 타임아웃 에러
+              if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+                throw new EcountError(
+                  `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): ${endpoint}`,
+                  'TIMEOUT',
+                  { endpoint }
+                );
+              }
+              // 네트워크 에러 (DNS 실패, 연결 거부 등)
+              throw EcountApiCallError.networkError(
+                endpoint,
+                fetchError instanceof Error ? fetchError : undefined
+              );
+            }
+          },
+          {
+            config: this.retryConfig,
+            shouldRetry: (error) => isTransientError(error),
+            onRetry: (ctx) => {
+              this.logger.warn('일시적 에러 발생, 재시도 예정', {
+                endpoint,
+                attempt: ctx.attempt,
+                maxAttempts: ctx.maxAttempts,
+                delayMs: ctx.delayMs,
+                error: ctx.error.message,
+              });
+            },
+            logger: this.logger,
           }
-          // 네트워크 에러 (DNS 실패, 연결 거부 등)
-          throw EcountApiCallError.networkError(
-            endpoint,
-            fetchError instanceof Error ? fetchError : undefined
-          );
-        }
+        );
 
         // HTTP 에러 처리
         if (response.status === 302 || response.status === 412) {
@@ -268,26 +295,44 @@ export class EcountClient {
     const baseUrl = this.sessionManager.getBaseUrl();
     const retryUrl = `${baseUrl}${endpoint}?SESSION_ID=${newSessionId}`;
 
-    let retryResponse: Response;
-    try {
-      retryResponse = await fetchWithTimeout(retryUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-    } catch (fetchError) {
-      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        throw new EcountError(
-          `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): ${endpoint}`,
-          'TIMEOUT',
-          { endpoint }
-        );
+    // Exponential Backoff를 적용한 세션 재시도
+    const retryResponse = await withRetry(
+      async () => {
+        try {
+          return await fetchWithTimeout(retryUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        } catch (fetchError) {
+          if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+            throw new EcountError(
+              `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): ${endpoint}`,
+              'TIMEOUT',
+              { endpoint }
+            );
+          }
+          throw EcountApiCallError.networkError(
+            endpoint,
+            fetchError instanceof Error ? fetchError : undefined
+          );
+        }
+      },
+      {
+        config: this.retryConfig,
+        shouldRetry: (error) => isTransientError(error),
+        onRetry: (ctx) => {
+          this.logger.warn('세션 재시도 중 일시적 에러 발생', {
+            endpoint,
+            attempt: ctx.attempt,
+            maxAttempts: ctx.maxAttempts,
+            delayMs: ctx.delayMs,
+            error: ctx.error.message,
+          });
+        },
+        logger: this.logger,
       }
-      throw EcountApiCallError.networkError(
-        endpoint,
-        fetchError instanceof Error ? fetchError : undefined
-      );
-    }
+    );
 
     if (!retryResponse.ok) {
       throw EcountApiCallError.httpError(retryResponse.status, endpoint);
@@ -766,22 +811,43 @@ export class EcountClient {
         const baseUrl = this.sessionManager.getBaseUrl();
         const url = `${baseUrl}/ec5/api/app.oapi.v3/action/CreateOApiBoardAction?session_Id=${sessionId}`;
 
-        let response: Response;
-        try {
-          response = await fetchWithTimeout(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: posts }),
-          });
-        } catch (fetchError) {
-          if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-            throw new EcountError(
-              `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): CreateOApiBoardAction`,
-              'TIMEOUT'
-            );
+        // Exponential Backoff를 적용한 게시판 API 호출
+        const response = await withRetry(
+          async () => {
+            try {
+              return await fetchWithTimeout(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: posts }),
+              });
+            } catch (fetchError) {
+              if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+                throw new EcountError(
+                  `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): CreateOApiBoardAction`,
+                  'TIMEOUT'
+                );
+              }
+              throw EcountApiCallError.networkError(
+                'CreateOApiBoardAction',
+                fetchError instanceof Error ? fetchError : undefined
+              );
+            }
+          },
+          {
+            config: this.retryConfig,
+            shouldRetry: (error) => isTransientError(error),
+            onRetry: (ctx) => {
+              this.logger.warn('게시판 API 일시적 에러 발생, 재시도 예정', {
+                endpoint: 'CreateOApiBoardAction',
+                attempt: ctx.attempt,
+                maxAttempts: ctx.maxAttempts,
+                delayMs: ctx.delayMs,
+                error: ctx.error.message,
+              });
+            },
+            logger: this.logger,
           }
-          throw fetchError;
-        }
+        );
 
         if (!response.ok) {
           throw EcountApiCallError.httpError(response.status, 'CreateOApiBoardAction');
