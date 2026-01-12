@@ -1,8 +1,8 @@
 # ECOUNT MCP Server
 
-A Model Context Protocol (MCP) server for [ECOUNT ERP](https://www.ecount.co.kr/) OpenAPI integration.
+A Model Context Protocol (MCP) server for [ECOUNT ERP](https://www.https://www.ecount.com//) OpenAPI integration.
 
-[![npm version](https://badge.fury.io/js/ecount-mcp.svg)](https://www.npmjs.com/package/ecount-mcp)
+[![npm version](https://badge.fury.io/js/mcp-server-ecount.svg)](https://www.npmjs.com/package/mcp-server-ecount)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Overview
@@ -12,8 +12,9 @@ This MCP server enables AI assistants like Claude to interact with ECOUNT ERP th
 ### Features
 
 - **22 Tools** - Products, customers, inventory, sales, purchases, production, accounting, e-commerce, attendance, bulletin board
-- **Automatic Session Management** - Zone caching, session auto-renewal on expiry
-- **Rate Limit Compliance** - Built-in rate limiter respecting ECOUNT's API limits
+- **Automatic Session Management** - Zone caching, session auto-renewal on expiry, file-based persistence
+- **Smart Throttling** - Automatic rate limit management with intelligent waiting (no manual retry needed)
+- **Multi-Process Support** - File-based rate limit state sharing across multiple instances
 - **Response Caching** - 10-minute cache for query results
 - **Error Handling** - Continuous error monitoring with user-friendly messages
 
@@ -36,7 +37,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "ecount": {
       "command": "npx",
-      "args": ["-y", "ecount-mcp"],
+      "args": ["-y", "mcp-server-ecount"],
       "env": {
         "ECOUNT_COM_CODE": "your_company_code",
         "ECOUNT_USER_ID": "your_user_id",
@@ -50,7 +51,7 @@ Add to your `claude_desktop_config.json`:
 #### Claude Code
 
 ```bash
-claude mcp add ecount-mcp -e ECOUNT_COM_CODE=회사코드 -e ECOUNT_USER_ID=사용자ID -e ECOUNT_API_CERT_KEY=인증키
+claude mcp add mcp-server-ecount -e ECOUNT_COM_CODE=회사코드 -e ECOUNT_USER_ID=사용자ID -e ECOUNT_API_CERT_KEY=인증키
 ```
 
 Or add to your project's `.mcp.json`:
@@ -60,7 +61,7 @@ Or add to your project's `.mcp.json`:
   "mcpServers": {
     "ecount": {
       "command": "npx",
-      "args": ["-y", "ecount-mcp"],
+      "args": ["-y", "mcp-server-ecount"],
       "env": {
         "ECOUNT_COM_CODE": "your_company_code",
         "ECOUNT_USER_ID": "your_user_id",
@@ -75,94 +76,95 @@ Or add to your project's `.mcp.json`:
 
 ### Connection & Status
 
-| Tool | Description |
-|------|-------------|
-| `ecount_test_connection` | Test API connection |
-| `ecount_get_session_info` | Get current session status |
-| `ecount_server_status` | Get server internal status (rate limits, cache, errors) |
+| Tool                      | Description                                             |
+| ------------------------- | ------------------------------------------------------- |
+| `ecount_test_connection`  | Test API connection                                     |
+| `ecount_get_session_info` | Get current session status                              |
+| `ecount_server_status`    | Get server internal status (rate limits, cache, errors) |
 
 ### Products
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_get_product` | Get single product details | 1s |
-| `ecount_get_products` | Get multiple products | 10min |
-| `ecount_create_product` | Create new products | 10s |
+| Tool                    | Description                | Rate Limit |
+| ----------------------- | -------------------------- | ---------- |
+| `ecount_get_product`    | Get single product details | 1s         |
+| `ecount_get_products`   | Get multiple products      | 10min      |
+| `ecount_create_product` | Create new products        | 10s        |
 
 ### Customers
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_create_customer` | Create new customers | 10s |
+| Tool                     | Description          | Rate Limit |
+| ------------------------ | -------------------- | ---------- |
+| `ecount_create_customer` | Create new customers | 10s        |
 
 ### Inventory
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_get_inventory` | Get inventory for single product | 1s |
-| `ecount_get_inventory_list` | Get inventory for multiple products | 10min |
-| `ecount_get_inventory_by_warehouse` | Get warehouse-level inventory (single) | 1s |
-| `ecount_get_inventory_by_warehouse_list` | Get warehouse-level inventory (multiple) | 10min |
+| Tool                                     | Description                              | Rate Limit |
+| ---------------------------------------- | ---------------------------------------- | ---------- |
+| `ecount_get_inventory`                   | Get inventory for single product         | 1s         |
+| `ecount_get_inventory_list`              | Get inventory for multiple products      | 10min      |
+| `ecount_get_inventory_by_warehouse`      | Get warehouse-level inventory (single)   | 1s         |
+| `ecount_get_inventory_by_warehouse_list` | Get warehouse-level inventory (multiple) | 10min      |
 
 ### Sales
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_create_quotation` | Create quotation | 10s |
-| `ecount_create_sale_order` | Create sales order | 10s |
-| `ecount_create_sale` | Create sales slip | 10s |
+| Tool                       | Description        | Rate Limit |
+| -------------------------- | ------------------ | ---------- |
+| `ecount_create_quotation`  | Create quotation   | 10s        |
+| `ecount_create_sale_order` | Create sales order | 10s        |
+| `ecount_create_sale`       | Create sales slip  | 10s        |
 
 ### Purchases
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_get_purchase_orders` | Get purchase orders | 10min |
-| `ecount_create_purchase` | Create purchase slip | 10s |
+| Tool                         | Description          | Rate Limit |
+| ---------------------------- | -------------------- | ---------- |
+| `ecount_get_purchase_orders` | Get purchase orders  | 10min      |
+| `ecount_create_purchase`     | Create purchase slip | 10s        |
 
 ### Production
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_create_job_order` | Create job order | 10s |
-| `ecount_create_goods_issued` | Create goods issued slip | 10s |
-| `ecount_create_goods_receipt` | Create goods receipt slip | 10s |
+| Tool                          | Description               | Rate Limit |
+| ----------------------------- | ------------------------- | ---------- |
+| `ecount_create_job_order`     | Create job order          | 10s        |
+| `ecount_create_goods_issued`  | Create goods issued slip  | 10s        |
+| `ecount_create_goods_receipt` | Create goods receipt slip | 10s        |
 
 ### Accounting
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_create_invoice` | Create sales/purchase invoice (auto journal) | 10s |
+| Tool                    | Description                                  | Rate Limit |
+| ----------------------- | -------------------------------------------- | ---------- |
+| `ecount_create_invoice` | Create sales/purchase invoice (auto journal) | 10s        |
 
 ### E-Commerce
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_create_openmarket_order` | Import orders from online marketplaces | 10s |
+| Tool                             | Description                            | Rate Limit |
+| -------------------------------- | -------------------------------------- | ---------- |
+| `ecount_create_openmarket_order` | Import orders from online marketplaces | 10s        |
 
 ### Attendance
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_create_clock_in_out` | Record attendance | 10s |
+| Tool                         | Description       | Rate Limit |
+| ---------------------------- | ----------------- | ---------- |
+| `ecount_create_clock_in_out` | Record attendance | 10s        |
 
 ### Bulletin Board
 
-| Tool | Description | Rate Limit |
-|------|-------------|------------|
-| `ecount_create_board_post` | Create board post | 10s |
+| Tool                       | Description       | Rate Limit |
+| -------------------------- | ----------------- | ---------- |
+| `ecount_create_board_post` | Create board post | 10s        |
 
 ## Configuration
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ECOUNT_COM_CODE` | Yes | ECOUNT company code (6 digits) |
-| `ECOUNT_USER_ID` | Yes | ECOUNT user ID (must be Master ID) |
-| `ECOUNT_API_CERT_KEY` | Yes | API certificate key |
-| `ECOUNT_USE_TEST_SERVER` | No | Use test server (`true`) |
-| `ECOUNT_SESSION_FILE` | No | Session file path for persistence |
-| `DEBUG` | No | Enable debug logging (`true`) |
+| Variable                 | Required | Description                                     |
+| ------------------------ | -------- | ----------------------------------------------- |
+| `ECOUNT_COM_CODE`        | Yes      | ECOUNT company code (6 digits)                  |
+| `ECOUNT_USER_ID`         | Yes      | ECOUNT user ID (must be Master ID)              |
+| `ECOUNT_API_CERT_KEY`    | Yes      | API certificate key                             |
+| `ECOUNT_USE_TEST_SERVER` | No       | Use test server (`true`)                        |
+| `ECOUNT_SESSION_FILE`    | No       | Session file path for persistence               |
+| `ECOUNT_RATE_LIMIT_FILE` | No       | Rate limit state file for multi-process support |
+| `DEBUG`                  | No       | Enable debug logging (`true`)                   |
 
 ### API Certificate Key
 
@@ -177,12 +179,12 @@ Or add to your project's `.mcp.json`:
 
 ECOUNT OpenAPI has strict rate limits:
 
-| API Type | Production | Test Server |
-|----------|------------|-------------|
-| Zone/Login | 10min | 10s |
-| Batch Query | 10min | 10s |
-| Single Query | 1s | 1s |
-| Save | 10s | 10s |
+| API Type     | Production | Test Server |
+| ------------ | ---------- | ----------- |
+| Zone/Login   | 10min      | 10s         |
+| Batch Query  | 10min      | 10s         |
+| Single Query | 1s         | 1s          |
+| Save         | 10s        | 10s         |
 
 ### Additional Limits
 
@@ -190,7 +192,22 @@ ECOUNT OpenAPI has strict rate limits:
 - Daily API calls: **5,000**
 - Max items per save: **300**
 
-This MCP server automatically manages rate limits and returns friendly error messages when limits are reached.
+### Smart Throttling
+
+This MCP server features intelligent rate limit management:
+
+| API Type            | Auto-Wait | Max Wait |
+| ------------------- | --------- | -------- |
+| Single Query (1s)   | ✅ Yes    | 5s       |
+| Save (10s)          | ✅ Yes    | 15s      |
+| Batch Query (10min) | ❌ No     | Error    |
+| Zone/Login (10min)  | ❌ No     | Error    |
+
+- **Auto-Wait**: For short intervals (1s, 10s), the server automatically waits before retrying
+- **Multi-Process Safe**: When `ECOUNT_RATE_LIMIT_FILE` is set, rate limit state is shared across all instances
+- **100ms Safety Margin**: All intervals include a safety margin to prevent edge-case failures
+
+When rate limits are exceeded beyond auto-wait thresholds, friendly error messages are returned with remaining wait time.
 
 ## Security
 
@@ -213,7 +230,7 @@ echo ".env" >> .gitignore
 ```bash
 # Clone repository
 git clone https://github.com/gilbreth-ai/mcp-server-ecount.git
-cd ecount-mcp
+cd mcp-server-ecount
 
 # Install dependencies
 npm install
@@ -231,7 +248,7 @@ npm run inspect
 ### Project Structure
 
 ```
-ecount-mcp/
+mcp-server-ecount/
 ├── src/
 │   ├── index.ts              # Entry point
 │   ├── server.ts             # MCP server setup
@@ -284,6 +301,7 @@ Result:
 ### "Item not found" error when saving
 
 You need to configure "Web Data Upload" in ECOUNT ERP:
+
 1. Go to the input menu (e.g., Sales > Sales Input)
 2. Click "Web Data Upload" button at the bottom
 3. Add required fields with "Add Upload Items"
@@ -291,6 +309,7 @@ You need to configure "Web Data Upload" in ECOUNT ERP:
 ### Session expires frequently
 
 Increase auto-logout time in ERP settings:
+
 - `ERP Settings` > `Security Settings` > `Auto Logout Time`
 
 ### Rate limit exceeded
