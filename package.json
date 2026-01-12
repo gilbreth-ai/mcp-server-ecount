@@ -1,5 +1,5 @@
 {
-  "name": "ecount-mcp",
+  "name": "mcp-server-ecount",
   "version": "0.1.0",
   "description": "MCP server for ECOUNT ERP OpenAPI integration",
   "author": "Gilbreth",
@@ -8,7 +8,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "ecount-mcp": "./dist/index.js"
+    "mcp-server-ecount": "./dist/index.js"
   },
   "files": [
     "dist",
