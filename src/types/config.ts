@@ -24,6 +24,8 @@ export interface ServerConfig {
   debug?: boolean;
   /** 세션 파일 저장 경로 */
   sessionFilePath?: string;
+  /** Rate Limit 상태 파일 저장 경로 (멀티 프로세스 지원용) */
+  rateLimitFilePath?: string;
   /** 캐시 TTL (밀리초, 기본: 10분) */
   cacheTtlMs?: number;
 }
@@ -60,6 +62,7 @@ export function loadConfigFromEnv(): EcountMcpConfig {
       useTestServer: process.env.ECOUNT_USE_TEST_SERVER === 'true',
       debug: process.env.DEBUG === 'true',
       sessionFilePath: process.env.ECOUNT_SESSION_FILE,
+      rateLimitFilePath: process.env.ECOUNT_RATE_LIMIT_FILE,
       cacheTtlMs: process.env.ECOUNT_CACHE_TTL_MS
         ? parseInt(process.env.ECOUNT_CACHE_TTL_MS, 10)
         : undefined,

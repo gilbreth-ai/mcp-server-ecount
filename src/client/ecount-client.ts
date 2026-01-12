@@ -95,7 +95,10 @@ export class EcountClient {
     });
 
     this.cache = getCache();
-    this.rateLimiter = getRateLimiter({ useTestServer });
+    this.rateLimiter = getRateLimiter({
+      useTestServer,
+      stateFilePath: config.server?.rateLimitFilePath,
+    });
     this.errorCounter = getErrorCounter();
   }
 
@@ -123,6 +126,11 @@ export class EcountClient {
 
   /**
    * API 요청 실행
+   *
+   * Rate Limit 자동 대기 기능:
+   * - query_single: 최대 5초까지 자동 대기
+   * - save: 최대 15초까지 자동 대기
+   * - zone/login/query: 10분이라 자동 대기 불가 (에러 반환)
    */
   private async request<T>(
     endpoint: string,
@@ -145,99 +153,104 @@ export class EcountClient {
       }
     }
 
-    // Rate Limit 확인
-    this.rateLimiter.checkLimit(rateLimitType);
+    // Rate Limit 자동 대기 + 실행
+    return this.rateLimiter.execute(
+      rateLimitType,
+      async () => {
+        // 세션 확보
+        const sessionId = await this.ensureSession();
+        const baseUrl = this.sessionManager.getBaseUrl();
+        const url = `${baseUrl}${endpoint}?SESSION_ID=${sessionId}`;
 
-    // 세션 확보
-    const sessionId = await this.ensureSession();
-    const baseUrl = this.sessionManager.getBaseUrl();
-    const url = `${baseUrl}${endpoint}?SESSION_ID=${sessionId}`;
+        this.logger.debug('API request', { endpoint, rateLimitType });
 
-    this.logger.debug('API request', { endpoint, rateLimitType });
+        let response: Response;
+        try {
+          response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        } catch (fetchError) {
+          // 타임아웃 에러
+          if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+            throw new EcountError(
+              `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): ${endpoint}`,
+              'TIMEOUT',
+              { endpoint }
+            );
+          }
+          // 네트워크 에러 (DNS 실패, 연결 거부 등)
+          throw EcountApiCallError.networkError(
+            endpoint,
+            fetchError instanceof Error ? fetchError : undefined
+          );
+        }
 
-    let response: Response;
-    try {
-      response = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-    } catch (fetchError) {
-      // 타임아웃 에러
-      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        throw new EcountError(
-          `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): ${endpoint}`,
-          'TIMEOUT',
-          { endpoint }
-        );
+        // HTTP 에러 처리
+        if (response.status === 302 || response.status === 412) {
+          throw EcountRateLimitError.forApiType(
+            rateLimitType,
+            this.rateLimiter.getWaitTime(rateLimitType)
+          );
+        }
+
+        if (!response.ok) {
+          throw EcountApiCallError.httpError(response.status, endpoint);
+        }
+
+        // 응답 파싱
+        let data: EcountApiResponse<T>;
+        try {
+          data = await response.json() as EcountApiResponse<T>;
+        } catch {
+          throw EcountApiCallError.parseError(endpoint);
+        }
+
+        // API 레벨 에러 처리 (Status는 숫자 또는 문자열일 수 있음)
+        const isSuccess = data.Status === 200 || data.Status === '200';
+        if (!isSuccess) {
+          const apiError = data.Error;
+
+          // 세션 만료 감지
+          if (
+            apiError?.Message?.includes('SESSION') ||
+            apiError?.Message?.includes('세션') ||
+            apiError?.Code === 401
+          ) {
+            this.sessionManager.clearSession();
+            // 세션 만료시 재시도
+            return this.retryWithNewSession<T>(endpoint, body, options);
+          }
+
+          this.errorCounter.recordError();
+          throw new EcountError(
+            apiError?.Message || 'API 호출 실패',
+            String(apiError?.Code),
+            { endpoint, response: data }
+          );
+        }
+
+        // 성공 - 에러 카운터 리셋
+        this.errorCounter.recordSuccess();
+
+        // 캐시 저장
+        if (useCache && cacheKey && data.Data) {
+          this.cache.setApiResponse(endpoint, cacheKey, data.Data, isSingleQuery);
+        }
+
+        return data.Data;
+      },
+      // 대기 시 로깅 (Claude에게 상태 보고)
+      (waitTimeMs, description) => {
+        this.logger.info(`Rate limit 대기 중: ${description} (${Math.ceil(waitTimeMs / 1000)}초)`);
       }
-      // 네트워크 에러 (DNS 실패, 연결 거부 등)
-      throw EcountApiCallError.networkError(
-        endpoint,
-        fetchError instanceof Error ? fetchError : undefined
-      );
-    }
-
-    // Rate Limit 기록 (요청 성공 후)
-    this.rateLimiter.recordCall(rateLimitType);
-
-    // HTTP 에러 처리
-    if (response.status === 302 || response.status === 412) {
-      throw EcountRateLimitError.forApiType(
-        rateLimitType,
-        this.rateLimiter.getWaitTime(rateLimitType)
-      );
-    }
-
-    if (!response.ok) {
-      throw EcountApiCallError.httpError(response.status, endpoint);
-    }
-
-    // 응답 파싱
-    let data: EcountApiResponse<T>;
-    try {
-      data = await response.json() as EcountApiResponse<T>;
-    } catch {
-      throw EcountApiCallError.parseError(endpoint);
-    }
-
-    // API 레벨 에러 처리 (Status는 숫자 또는 문자열일 수 있음)
-    const isSuccess = data.Status === 200 || data.Status === '200';
-    if (!isSuccess) {
-      const apiError = data.Error;
-
-      // 세션 만료 감지
-      if (
-        apiError?.Message?.includes('SESSION') ||
-        apiError?.Message?.includes('세션') ||
-        apiError?.Code === 401
-      ) {
-        this.sessionManager.clearSession();
-        // 세션 만료시 재시도
-        return this.retryWithNewSession(endpoint, body, options);
-      }
-
-      this.errorCounter.recordError();
-      throw new EcountError(
-        apiError?.Message || 'API 호출 실패',
-        String(apiError?.Code),
-        { endpoint, response: data }
-      );
-    }
-
-    // 성공 - 에러 카운터 리셋
-    this.errorCounter.recordSuccess();
-
-    // 캐시 저장
-    if (useCache && cacheKey && data.Data) {
-      this.cache.setApiResponse(endpoint, cacheKey, data.Data, isSingleQuery);
-    }
-
-    return data.Data;
+    );
   }
 
   /**
    * 새 세션으로 재시도
+   * 주의: 이 메서드는 execute 내부에서 호출되므로 Rate Limit은 이미 처리됨
    */
   private async retryWithNewSession<T>(
     endpoint: string,
@@ -275,9 +288,6 @@ export class EcountClient {
         fetchError instanceof Error ? fetchError : undefined
       );
     }
-
-    // 재시도도 Rate Limit 기록
-    this.rateLimiter.recordCall(options.rateLimitType);
 
     if (!retryResponse.ok) {
       throw EcountApiCallError.httpError(retryResponse.status, endpoint);
@@ -371,7 +381,7 @@ export class EcountClient {
       '/OAPI/V2/InventoryBasic/GetBasicProductsList',
       { PROD_CD: prodCode },
       {
-        rateLimitType: 'query_single',
+        rateLimitType: 'query_single_product',
         useCache: true,
         cacheKey: { prodCode },
         isSingleQuery: true,
@@ -403,7 +413,7 @@ export class EcountClient {
       '/OAPI/V2/InventoryBasic/GetBasicProductsList',
       body,
       {
-        rateLimitType: 'query',
+        rateLimitType: 'query_products',
         useCache: true,
         cacheKey: params,
       }
@@ -425,7 +435,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/BasicProduct/SaveBasicProduct',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_product' }
     );
   }
 
@@ -446,7 +456,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/BasicCust/SaveBasicCust',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_customer' }
     );
   }
 
@@ -462,7 +472,7 @@ export class EcountClient {
       '/OAPI/V2/InventoryBalance/ViewInventoryBalanceStatus',
       params,
       {
-        rateLimitType: 'query_single',
+        rateLimitType: 'query_single_inventory',
         useCache: true,
         cacheKey: params as unknown as Record<string, unknown>,
         isSingleQuery: true,
@@ -480,7 +490,7 @@ export class EcountClient {
       '/OAPI/V2/InventoryBalance/GetListInventoryBalanceStatus',
       params,
       {
-        rateLimitType: 'query',
+        rateLimitType: 'query_inventory',
         useCache: true,
         cacheKey: params,
       }
@@ -499,7 +509,7 @@ export class EcountClient {
       '/OAPI/V2/InventoryBalance/ViewInventoryBalanceStatusByLocation',
       params,
       {
-        rateLimitType: 'query_single',
+        rateLimitType: 'query_single_inventory_warehouse',
         useCache: true,
         cacheKey: params as unknown as Record<string, unknown>,
         isSingleQuery: true,
@@ -519,7 +529,7 @@ export class EcountClient {
       '/OAPI/V2/InventoryBalance/GetListInventoryBalanceStatusByLocation',
       params,
       {
-        rateLimitType: 'query',
+        rateLimitType: 'query_inventory_warehouse',
         useCache: true,
         cacheKey: params,
       }
@@ -545,7 +555,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/Quotation/SaveQuotation',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_quotation' }
     );
   }
 
@@ -562,7 +572,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/SaleOrder/SaveSaleOrder',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_sale_order' }
     );
   }
 
@@ -577,7 +587,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/Sale/SaveSale',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_sale' }
     );
   }
 
@@ -598,7 +608,7 @@ export class EcountClient {
       '/OAPI/V2/PurchasesOrder/GetPurchasesOrderList',
       params,
       {
-        rateLimitType: 'query',
+        rateLimitType: 'query_purchase_orders',
         useCache: true,
         cacheKey: params,
       }
@@ -620,7 +630,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/Purchases/SavePurchases',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_purchase' }
     );
   }
 
@@ -641,7 +651,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/JobOrder/SaveJobOrder',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_job_order' }
     );
   }
 
@@ -658,7 +668,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/GoodsIssued/SaveGoodsIssued',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_goods_issued' }
     );
   }
 
@@ -675,7 +685,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/GoodsReceipt/SaveGoodsReceipt',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_goods_receipt' }
     );
   }
 
@@ -696,7 +706,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/InvoiceAuto/SaveInvoiceAuto',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_invoice' }
     );
   }
 
@@ -713,7 +723,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/OpenMarket/SaveOpenMarketOrderNew',
       order,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_openmarket_order' }
     );
   }
 
@@ -734,7 +744,7 @@ export class EcountClient {
     return this.request<SaveApiResponseData>(
       '/OAPI/V2/TimeMgmt/SaveClockInOut',
       body,
-      { rateLimitType: 'save' }
+      { rateLimitType: 'save_clock_in_out' }
     );
   }
 
@@ -749,36 +759,40 @@ export class EcountClient {
   async createBoardPost(
     posts: SaveBoardPostRequest[]
   ): Promise<{ data: Array<{ seq: number; result: string; error?: unknown }> }> {
-    const sessionId = await this.ensureSession();
-    const baseUrl = this.sessionManager.getBaseUrl();
-    const url = `${baseUrl}/ec5/api/app.oapi.v3/action/CreateOApiBoardAction?session_Id=${sessionId}`;
+    return this.rateLimiter.execute(
+      'save_board_post',
+      async () => {
+        const sessionId = await this.ensureSession();
+        const baseUrl = this.sessionManager.getBaseUrl();
+        const url = `${baseUrl}/ec5/api/app.oapi.v3/action/CreateOApiBoardAction?session_Id=${sessionId}`;
 
-    this.rateLimiter.checkLimit('save');
+        let response: Response;
+        try {
+          response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: posts }),
+          });
+        } catch (fetchError) {
+          if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+            throw new EcountError(
+              `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): CreateOApiBoardAction`,
+              'TIMEOUT'
+            );
+          }
+          throw fetchError;
+        }
 
-    let response: Response;
-    try {
-      response = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: posts }),
-      });
-    } catch (fetchError) {
-      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        throw new EcountError(
-          `API 요청 타임아웃 (${DEFAULT_TIMEOUT_MS / 1000}초 초과): CreateOApiBoardAction`,
-          'TIMEOUT'
-        );
+        if (!response.ok) {
+          throw EcountApiCallError.httpError(response.status, 'CreateOApiBoardAction');
+        }
+
+        return response.json() as Promise<{ data: Array<{ seq: number; result: string; error?: unknown }> }>;
+      },
+      (waitTimeMs, description) => {
+        this.logger.info(`Rate limit 대기 중: ${description} (${Math.ceil(waitTimeMs / 1000)}초)`);
       }
-      throw fetchError;
-    }
-
-    this.rateLimiter.recordCall('save');
-
-    if (!response.ok) {
-      throw EcountApiCallError.httpError(response.status, 'CreateOApiBoardAction');
-    }
-
-    return response.json() as Promise<{ data: Array<{ seq: number; result: string; error?: unknown }> }>;
+    );
   }
 
   // ============================================================================
@@ -801,7 +815,7 @@ export class EcountClient {
    */
   getRateLimitStatus(): Record<
     RateLimitType,
-    { canCall: boolean; waitTimeMs: number }
+    { canCall: boolean; waitTimeMs: number; autoWait: boolean }
   > {
     return this.rateLimiter.getStatus();
   }

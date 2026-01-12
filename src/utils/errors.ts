@@ -4,6 +4,8 @@
  * 계층적 에러 처리를 위한 커스텀 에러 클래스들
  */
 
+import type { RateLimitType } from '../client/rate-limiter.js';
+
 /**
  * 기본 ECOUNT 에러
  */
@@ -81,35 +83,27 @@ export class EcountAuthError extends EcountError {
 
 /**
  * Rate Limit 에러
- * - 10분/1회 제한 초과 (조회 API)
- * - 10초/1회 제한 초과 (저장 API)
- * - 1초/1회 제한 초과 (단건 조회)
+ * - 각 API별로 독립적인 Rate Limit 적용
  */
 export class EcountRateLimitError extends EcountError {
   constructor(
     message: string,
     public readonly retryAfterMs: number,
-    public readonly apiType: 'zone' | 'login' | 'query' | 'query_single' | 'save'
+    public readonly apiType: RateLimitType
   ) {
     super(message, 'RATE_LIMIT_EXCEEDED', { retryAfterMs, apiType });
     this.name = 'EcountRateLimitError';
   }
 
   static forApiType(
-    apiType: 'zone' | 'login' | 'query' | 'query_single' | 'save',
+    apiType: RateLimitType,
     retryAfterMs: number
   ): EcountRateLimitError {
-    const apiNames: Record<string, string> = {
-      zone: 'Zone 조회',
-      login: '로그인',
-      query: '다건 조회',
-      query_single: '단건 조회',
-      save: '저장',
-    };
-
     const waitSeconds = Math.ceil(retryAfterMs / 1000);
+    // API 타입에서 사람이 읽기 좋은 이름 생성
+    const friendlyName = apiType.replace(/_/g, ' ').replace(/query/g, '조회').replace(/save/g, '저장');
     return new EcountRateLimitError(
-      `Rate Limit 초과 (${apiNames[apiType]}). ${waitSeconds}초 후 재시도 가능.`,
+      `Rate Limit 초과 (${friendlyName}). ${waitSeconds}초 후 재시도 가능.`,
       retryAfterMs,
       apiType
     );
