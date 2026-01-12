@@ -1,0 +1,57 @@
+{
+  "name": "ecount-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for ECOUNT ERP OpenAPI integration",
+  "author": "Gilbreth",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "ecount-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "inspect": "npx @modelcontextprotocol/inspector tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "ecount",
+    "erp",
+    "model-context-protocol",
+    "anthropic",
+    "claude"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gilbreth-ai/mcp-server-ecount.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gilbreth-ai/mcp-server-ecount/issues"
+  },
+  "homepage": "https://github.com/gilbreth-ai/mcp-server-ecount#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^17.2.3",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
