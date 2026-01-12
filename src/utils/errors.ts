@@ -198,6 +198,7 @@ export class EcountErrorLimitError extends EcountError {
 
 /**
  * 에러가 재시도 가능한지 확인
+ * (세션 만료 포함 - 기존 retryWithNewSession 로직용)
  */
 export function isRetryableError(error: unknown): boolean {
   if (error instanceof EcountAuthError && error.isSessionExpired) {
@@ -210,6 +211,69 @@ export function isRetryableError(error: unknown): boolean {
     // 5xx 에러는 재시도 가능
     return error.statusCode >= 500 && error.statusCode < 600;
   }
+  return false;
+}
+
+/**
+ * 타임아웃 에러인지 확인
+ */
+export function isTimeoutError(error: unknown): boolean {
+  // EcountError with TIMEOUT code
+  if (error instanceof EcountError && error.code === 'TIMEOUT') {
+    return true;
+  }
+  // EcountAuthError timeout
+  if (error instanceof EcountAuthError && error.code === 'TIMEOUT') {
+    return true;
+  }
+  // Native AbortError (from AbortController)
+  if (error instanceof Error && error.name === 'AbortError') {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 네트워크 에러인지 확인 (연결 실패, DNS 오류 등)
+ */
+export function isNetworkError(error: unknown): boolean {
+  // EcountApiCallError without statusCode = network error
+  if (error instanceof EcountApiCallError && error.statusCode === undefined) {
+    return true;
+  }
+  // TypeError from fetch (network failure)
+  if (error instanceof TypeError && error.message.includes('fetch')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 일시적 에러인지 확인 (Exponential Backoff 재시도 대상)
+ * - 5xx 서버 에러
+ * - 타임아웃
+ * - 네트워크 에러
+ *
+ * 주의: 세션 만료는 별도 로직(retryWithNewSession)에서 처리하므로 여기서 제외
+ */
+export function isTransientError(error: unknown): boolean {
+  // 5xx 서버 에러
+  if (error instanceof EcountApiCallError && error.statusCode !== undefined) {
+    if (error.statusCode >= 500 && error.statusCode < 600) {
+      return true;
+    }
+  }
+
+  // 타임아웃 에러
+  if (isTimeoutError(error)) {
+    return true;
+  }
+
+  // 네트워크 에러
+  if (isNetworkError(error)) {
+    return true;
+  }
+
   return false;
 }
 
