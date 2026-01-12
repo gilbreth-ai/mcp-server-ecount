@@ -1,6 +1,6 @@
 # ECOUNT MCP Server
 
-A Model Context Protocol (MCP) server for [ECOUNT ERP](https://www.https://www.ecount.com//) OpenAPI integration.
+A Model Context Protocol (MCP) server for [ECOUNT ERP](https://www.ecount.com/) OpenAPI integration.
 
 [![npm version](https://badge.fury.io/js/mcp-server-ecount.svg)](https://www.npmjs.com/package/mcp-server-ecount)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
