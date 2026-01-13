@@ -296,6 +296,47 @@ Result:
 - Success: 1 item
 ```
 
+### Low Stock Alert & Purchase Decision Support
+
+```
+User: "Show me items with less than 5 units in stock,
+       with their recent purchase prices, and suggest order quantities"
+
+Claude uses ecount_get_inventory_list, ecount_get_products tools.
+
+Result:
+- Product A: Stock 3, Last price 5,000 KRW → Suggest order: 20 units
+- Product B: Stock 2, Last price 12,000 KRW → Suggest order: 15 units
+- Product C: Stock 1, Last price 8,000 KRW → Suggest order: 25 units
+Total estimated cost: 456,000 KRW
+```
+
+### Natural Language Customer Registration
+
+```
+User: "Register new customer: ABC Corp, Business No. 123-45-67890,
+       CEO: John Doe, Address: 123 Main St, Seoul"
+
+Claude uses ecount_create_customer tool.
+
+Result:
+- Customer Code: C0042 (auto-generated)
+- Registration complete
+```
+
+### Post Analysis to ERP Bulletin Board
+
+```
+User: "Summarize our sales trend analysis and post it to the company bulletin board"
+
+Claude uses ecount_create_board_post tool.
+
+Result:
+- Board: Announcements
+- Title: [Analysis] H1 Sales Trend Summary
+- Posted successfully
+```
+
 ## Troubleshooting
 
 ### "Item not found" error when saving
