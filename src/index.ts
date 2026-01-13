@@ -16,11 +16,6 @@
  *   DEBUG               - 디버그 로깅 활성화 (선택, 'true')
  */
 
-// .env 파일 로드 (개발용)
-import { config as loadEnv } from 'dotenv';
-loadEnv({ path: '.env.local' });
-loadEnv(); // .env도 로드
-
 import { loadConfigFromEnv } from './types/config.js';
 import { runServer } from './server.js';
 
