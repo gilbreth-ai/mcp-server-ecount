@@ -1,5 +1,7 @@
 # ECOUNT MCP Server
 
+[English](README.md) | [한국어](README_KO.md)
+
 A Model Context Protocol (MCP) server for [ECOUNT ERP](https://www.ecount.com/) OpenAPI integration.
 
 [![npm version](https://badge.fury.io/js/mcp-server-ecount.svg)](https://www.npmjs.com/package/mcp-server-ecount)
