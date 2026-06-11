@@ -47,6 +47,7 @@ import {
 } from '../utils/errors.js';
 import { withRetry, type RetryConfig, DEFAULT_RETRY_CONFIG } from '../utils/retry.js';
 import { getLogger, type Logger } from '../utils/logger.js';
+import { assertAllowedEcountUrl } from '../utils/network-policy.js';
 import { SessionManager } from './session-manager.js';
 import { getCache, type ApiCache } from './cache.js';
 import { getRateLimiter, type RateLimiter, type RateLimitType } from './rate-limiter.js';
@@ -60,6 +61,7 @@ async function fetchWithTimeout(
   options: RequestInit,
   timeoutMs: number = DEFAULT_TIMEOUT_MS
 ): Promise<Response> {
+  assertAllowedEcountUrl(url);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 

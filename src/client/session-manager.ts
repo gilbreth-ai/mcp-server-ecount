@@ -12,6 +12,7 @@ import { dirname } from 'node:path';
 import type { EcountCredentials } from '../types/config.js';
 import { EcountAuthError } from '../utils/errors.js';
 import { getLogger, type Logger } from '../utils/logger.js';
+import { assertAllowedEcountUrl } from '../utils/network-policy.js';
 import { getCache, type ApiCache } from './cache.js';
 import { getRateLimiter, type RateLimiter } from './rate-limiter.js';
 
@@ -26,6 +27,7 @@ async function fetchWithTimeout(
   options: RequestInit,
   timeoutMs: number = AUTH_TIMEOUT_MS
 ): Promise<Response> {
+  assertAllowedEcountUrl(url);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
