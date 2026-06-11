@@ -14,6 +14,27 @@ import * as schemas from './schemas.js';
 
 const logger = getLogger();
 
+const READ_ONLY_TOOL_NAMES = new Set([
+  'ecount_test_connection',
+  'ecount_get_session_info',
+  'ecount_server_status',
+  'ecount_get_product',
+  'ecount_get_products',
+  'ecount_get_inventory',
+  'ecount_get_inventory_list',
+  'ecount_get_inventory_by_warehouse',
+  'ecount_get_inventory_by_warehouse_list',
+  'ecount_get_purchase_orders',
+]);
+
+function areWriteToolsEnabled(): boolean {
+  return process.env.ECOUNT_READ_ONLY !== 'true';
+}
+
+function isReadOnlyTool(toolName: string): boolean {
+  return READ_ONLY_TOOL_NAMES.has(toolName);
+}
+
 /**
  * 도구 실행 결과 형식화
  */
@@ -46,12 +67,21 @@ function formatError(error: unknown): {
  */
 export function registerTools(server: McpServer, client: EcountClient): void {
   logger.info('Registering MCP tools');
+  const writeToolsEnabled = areWriteToolsEnabled();
+  const registerTool = ((...args: unknown[]): unknown => {
+    const toolName = String(args[0]);
+    if (!writeToolsEnabled && !isReadOnlyTool(toolName)) {
+      logger.warn('Skipping write-capable ECOUNT tool in read-only mode', { tool: toolName });
+      return undefined;
+    }
+    return (server.tool as (...toolArgs: unknown[]) => unknown)(...args);
+  }) as McpServer['tool'];
 
   // ============================================================================
   // 인증/연결 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_test_connection',
     'ECOUNT ERP 연결 테스트. API 인증 정보(회사코드, 사용자ID, API키)가 올바른지 확인하고, ' +
     'Zone 조회와 로그인이 성공하는지 테스트합니다. 다른 ECOUNT 도구 사용 전에 먼저 실행하세요. ' +
@@ -72,7 +102,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_get_session_info',
     '현재 ECOUNT 세션 상태 조회. Zone 정보, 세션 유효 여부, 만료 시간을 확인합니다. ' +
     '세션이 만료되었는지 확인하거나 디버깅할 때 사용합니다. 인자 없이 호출합니다.',
@@ -90,7 +120,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_server_status',
     'MCP 서버 내부 상태 조회. Rate Limit 현황, 에러 카운터, 캐시 상태, 서버 버전을 확인합니다. ' +
     'API 호출이 차단되거나 느린 원인을 파악할 때 사용합니다. 인자 없이 호출합니다.',
@@ -113,7 +143,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 품목 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_get_product',
     '품목 단건 조회. 특정 품목코드의 상세 정보를 조회합니다. ' +
     '정확한 품목코드를 알고 있을 때 사용하세요. ' +
@@ -137,7 +167,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_get_products',
     '품목 다건 조회. 여러 품목을 한 번에 조회합니다. ' +
     'prodCodes로 특정 품목들을 조회하거나, prodType으로 품목구분별 조회 가능. ' +
@@ -160,7 +190,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_create_product',
     '품목 등록. 새로운 품목을 ECOUNT에 등록합니다. ' +
     '품목코드(PROD_CD)와 품목명(PROD_DES)은 필수이며, 규격/단위/단가 등은 선택입니다. ' +
@@ -188,7 +218,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 거래처 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_create_customer',
     '거래처 등록. 새로운 거래처(고객사/협력사)를 ECOUNT에 등록합니다. ' +
     '거래처코드(CUST_CD)와 거래처명(CUST_DES)은 필수이며, ' +
@@ -216,7 +246,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 재고현황 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_get_inventory',
     '재고현황 단건 조회. 특정 품목의 특정 일자 기준 재고 수량을 조회합니다. ' +
     '기준일(baseDate)과 품목코드(prodCode)는 필수입니다. ' +
@@ -244,7 +274,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_get_inventory_list',
     '재고현황 다건 조회. 여러 품목 또는 전체 품목의 재고를 한 번에 조회합니다. ' +
     '기준일(baseDate)은 필수입니다. ' +
@@ -274,7 +304,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_get_inventory_by_warehouse',
     '창고별 재고현황 단건 조회. 특정 품목의 각 창고별 재고 수량을 조회합니다. ' +
     '여러 창고에 분산된 재고를 창고별로 확인할 때 사용합니다. ' +
@@ -301,7 +331,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_get_inventory_by_warehouse_list',
     '창고별 재고현황 다건 조회. 여러 품목의 창고별 재고를 한 번에 조회합니다. ' +
     '전체 창고의 재고 현황을 파악할 때 사용합니다. 기준일(baseDate)은 필수입니다. ' +
@@ -335,7 +365,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 영업관리 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_create_quotation',
     '견적서 입력. 고객에게 제시할 견적서를 ECOUNT에 등록합니다. ' +
     '각 항목에 품목코드(PROD_CD)는 필수이며, 거래처/수량/단가/금액 등을 입력합니다. ' +
@@ -359,7 +389,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_create_sale_order',
     '주문서 입력. 고객으로부터 받은 주문을 ECOUNT에 등록합니다. ' +
     '견적서가 확정되어 주문으로 전환될 때 사용합니다. ' +
@@ -384,7 +414,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_create_sale',
     '판매 입력. 실제 판매(출고) 전표를 ECOUNT에 등록합니다. ' +
     '주문이 출고되어 매출이 발생했을 때 사용합니다. ' +
@@ -413,7 +443,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 구매관리 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_get_purchase_orders',
     '발주서 조회. 특정 기간의 발주서 목록을 조회합니다. ' +
     '조회 시작일(baseDateFrom)과 종료일(baseDateTo)은 필수입니다. YYYYMMDD 형식. 최대 30일 조회 가능. ' +
@@ -443,7 +473,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_create_purchase',
     '구매 입력. 구매(입고) 전표를 ECOUNT에 등록합니다. ' +
     '협력사로부터 물품을 구매하여 입고받았을 때 사용합니다. ' +
@@ -472,7 +502,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 생산관리 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_create_job_order',
     '작업지시서 입력. 생산 계획을 ECOUNT에 등록합니다. ' +
     '어떤 제품을 얼마나 생산할지 지시하는 문서입니다. ' +
@@ -496,7 +526,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_create_goods_issued',
     '생산불출 입력. 생산을 위해 자재를 출고하는 전표를 등록합니다. ' +
     '창고에서 생산 공장으로 원자재를 불출할 때 사용합니다. ' +
@@ -520,7 +550,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
     }
   );
 
-  server.tool(
+  registerTool(
     'ecount_create_goods_receipt',
     '생산입고 I 입력. 생산 완료된 완제품을 입고하는 전표를 등록합니다. ' +
     '생산이 완료되어 완제품이 창고에 입고될 때 사용합니다. ' +
@@ -548,7 +578,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 회계 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_create_invoice',
     '매출·매입전표 II 자동분개. 회계 전표(세금계산서)를 ECOUNT에 등록합니다. ' +
     'TAX_GUBUN으로 매출/매입 구분을 지정합니다: 11=과세매출, 21=과세매입, 14=카드매출 등. ' +
@@ -577,7 +607,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 쇼핑몰 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_create_openmarket_order',
     '쇼핑몰 주문 입력. 네이버스토어, 쿠팡 등 외부 쇼핑몰 주문을 ECOUNT에 등록합니다. ' +
     '쇼핑몰코드(openmarketCode)는 ECOUNT에 미리 등록된 코드입니다. ' +
@@ -604,7 +634,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 근태관리 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_create_clock_in_out',
     '출퇴근 기록 입력. 직원의 출퇴근 시간을 ECOUNT에 등록합니다. ' +
     '사원번호(EMP_CD), 출근일시(ATTDC_DTM_I), 퇴근일시(ATTDC_DTM_O)가 필수입니다. ' +
@@ -631,7 +661,7 @@ export function registerTools(server: McpServer, client: EcountClient): void {
   // 게시판 도구
   // ============================================================================
 
-  server.tool(
+  registerTool(
     'ecount_create_board_post',
     '게시글 입력. ECOUNT ERP 게시판에 글을 등록합니다. ' +
     '게시판 ID(bizz_sid)는 ECOUNT에 등록된 게시판의 식별코드입니다. ' +

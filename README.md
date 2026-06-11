@@ -164,9 +164,14 @@ Or add to your project's `.mcp.json`:
 | `ECOUNT_USER_ID`         | Yes      | ECOUNT user ID (must be Master ID)              |
 | `ECOUNT_API_CERT_KEY`    | Yes      | API certificate key                             |
 | `ECOUNT_USE_TEST_SERVER` | No       | Use test server (`true`)                        |
+| `ECOUNT_READ_ONLY`       | No       | Register query/status tools only (`true`)       |
 | `ECOUNT_SESSION_FILE`    | No       | Session file path for persistence               |
 | `ECOUNT_RATE_LIMIT_FILE` | No       | Rate limit state file for multi-process support |
 | `DEBUG`                  | No       | Enable debug logging (`true`)                   |
+
+When `ECOUNT_READ_ONLY=true`, write-capable tools such as create/save/import
+operations are not registered. This is useful when an AI assistant should inspect
+ERP data without being able to mutate ECOUNT records.
 
 ### API Certificate Key
 

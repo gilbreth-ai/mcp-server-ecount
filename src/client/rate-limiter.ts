@@ -126,15 +126,15 @@ const RATE_LIMITS: Record<RateLimitType, RateLimitConfig> = {
  * 테스트 서버용 Rate Limit (더 관대함)
  */
 const TEST_RATE_LIMITS: Record<RateLimitType, RateLimitConfig> = {
-  // 인증 (10초, 자동대기 가능)
-  zone: createConfig(TEST_INTERVAL_10MIN, 'Zone 조회 (테스트)', true, 15000),
-  login: createConfig(TEST_INTERVAL_10MIN, '로그인 (테스트)', true, 15000),
+  // 인증 (10초, 자동대기 불가)
+  zone: createConfig(TEST_INTERVAL_10MIN, 'Zone 조회 (테스트)', false, 0),
+  login: createConfig(TEST_INTERVAL_10MIN, '로그인 (테스트)', false, 0),
 
-  // 다건 조회 (10초, 자동대기 가능)
-  query_products: createConfig(TEST_INTERVAL_10MIN, '품목 다건 조회 (테스트)', true, 15000),
-  query_inventory: createConfig(TEST_INTERVAL_10MIN, '재고 다건 조회 (테스트)', true, 15000),
-  query_inventory_warehouse: createConfig(TEST_INTERVAL_10MIN, '창고별 재고 다건 조회 (테스트)', true, 15000),
-  query_purchase_orders: createConfig(TEST_INTERVAL_10MIN, '발주서 조회 (테스트)', true, 15000),
+  // 다건 조회 (10초, 자동대기 불가)
+  query_products: createConfig(TEST_INTERVAL_10MIN, '품목 다건 조회 (테스트)', false, 0),
+  query_inventory: createConfig(TEST_INTERVAL_10MIN, '재고 다건 조회 (테스트)', false, 0),
+  query_inventory_warehouse: createConfig(TEST_INTERVAL_10MIN, '창고별 재고 다건 조회 (테스트)', false, 0),
+  query_purchase_orders: createConfig(TEST_INTERVAL_10MIN, '발주서 조회 (테스트)', false, 0),
 
   // 단건 조회 (1초, 자동대기 가능)
   query_single_product: createConfig(TEST_INTERVAL_1SEC, '품목 단건 조회 (테스트)', true, 5000),
